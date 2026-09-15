@@ -33,6 +33,17 @@ def create_mcp(policy: Policy | None = None) -> FastMCP:
 
     register_tool(mcp)
 
+    # Extra tools missing from upstream: Octavia (load balancers),
+    # Designate (DNS), and ops/heat (keypairs, server groups, AZs,
+    # hypervisors, services, stacks). Same convention: get_* = read.
+    from openstack_mcp_guarded.extra_tools.designate_tools import DesignateTools
+    from openstack_mcp_guarded.extra_tools.octavia_tools import OctaviaTools
+    from openstack_mcp_guarded.extra_tools.ops_tools import OpsTools
+
+    OctaviaTools().register_tools(mcp)
+    DesignateTools().register_tools(mcp)
+    OpsTools().register_tools(mcp)
+
     # Fuses: policy middleware added LAST (outermost) so it sees every
     # tools/call before anything else touches it.
     mcp.add_middleware(PolicyMiddleware(policy))
