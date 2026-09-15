@@ -35,7 +35,7 @@ def cloud_selected(monkeypatch):
     """Pretend a valid cloud is selected (no network I/O involved)."""
     from openstack_mcp_server.tools.connection import ConnectionManager
 
-    monkeypatch.setattr(ConnectionManager, "_cloud_name", "eu-pl-2")
+    monkeypatch.setattr(ConnectionManager, "_cloud_name", "RegionOne")
     yield
     monkeypatch.setattr(ConnectionManager, "_cloud_name", "")
 
@@ -132,7 +132,7 @@ async def test_no_cloud_guard_hint_lists_clouds(read_only_policy, no_cloud):
     """The block message should hint available clouds from clouds.yaml."""
     mcp = create_mcp(policy=read_only_policy)
     async with Client(mcp) as client:
-        with pytest.raises(ToolError, match="eu-pl-2"):
+        with pytest.raises(ToolError, match="RegionOne"):
             await client.call_tool("get_servers", {})
 
 
@@ -144,10 +144,10 @@ async def test_session_tools_work_without_cloud(read_only_policy, no_cloud):
     async with Client(mcp) as client:
         result = await client.call_tool("get_cloud_names", {})
         clouds = result.data
-        assert "eu-pl-2" in clouds
+        assert "RegionOne" in clouds
 
-        await client.call_tool("set_cloud_name", {"cloud_name": "eu-pl-2"})
-        assert ConnectionManager.get_cloud_name() == "eu-pl-2"
+        await client.call_tool("set_cloud_name", {"cloud_name": "RegionOne"})
+        assert ConnectionManager.get_cloud_name() == "RegionOne"
 
 
 async def test_custom_mode_allows_selected_tools():
