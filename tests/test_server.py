@@ -15,6 +15,34 @@ from openstack_mcp_guarded.policy import Policy
 from openstack_mcp_guarded.server import create_mcp
 
 
+@pytest.fixture(autouse=True)
+def fake_clouds(monkeypatch):
+    """Hermetic cloud catalogue.
+
+    Tests must not depend on the real ~/.config/openstack/clouds.yaml
+    (different machines = different cloud names). Patch both import
+    sites: connection.py binds OpenStackConfig at import time, while
+    the middleware resolves it from openstack.config.loader at call
+    time.
+    """
+    import openstack.config.loader as _loader
+    import openstack_mcp_server.tools.connection as _conn
+
+    class FakeOpenStackConfig:
+        cloud_config: dict = {
+            "clouds": {name: {} for name in ("RegionOne", "lab-cloud")},
+        }
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def get_cloud_names(self) -> list[str]:
+            return list(self.cloud_config["clouds"])
+
+    monkeypatch.setattr(_conn, "OpenStackConfig", FakeOpenStackConfig)
+    monkeypatch.setattr(_loader, "OpenStackConfig", FakeOpenStackConfig)
+
+
 @pytest.fixture()
 def read_only_policy():
     return Policy(mode="read-only", source="test")
