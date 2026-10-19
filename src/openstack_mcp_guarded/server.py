@@ -10,6 +10,7 @@ middleware into the pipeline.
 
 from fastmcp import FastMCP
 
+from openstack_mcp_guarded.compat import patch_upstream_quirks
 from openstack_mcp_guarded.middleware import PolicyMiddleware
 from openstack_mcp_guarded.policy import Policy
 
@@ -25,6 +26,10 @@ def create_mcp(policy: Policy | None = None) -> FastMCP:
     if policy is None:
         policy = Policy.load()
 
+    # Order-independent (mutates the shared model class in place; see
+    # compat.py), but applied as early as possible on principle.
+    patch_upstream_quirks()
+
     mcp = FastMCP("openstack_mcp_guarded")
 
     # Upstream tools (compute, image, identity, network, block storage,
@@ -32,6 +37,17 @@ def create_mcp(policy: Policy | None = None) -> FastMCP:
     from openstack_mcp_server.tools import register_tool
 
     register_tool(mcp)
+
+    # Extra tools missing from upstream: Octavia (load balancers),
+    # Designate (DNS), and ops/heat (keypairs, server groups, AZs,
+    # hypervisors, services, stacks). Same convention: get_* = read.
+    from openstack_mcp_guarded.extra_tools.designate_tools import DesignateTools
+    from openstack_mcp_guarded.extra_tools.octavia_tools import OctaviaTools
+    from openstack_mcp_guarded.extra_tools.ops_tools import OpsTools
+
+    OctaviaTools().register_tools(mcp)
+    DesignateTools().register_tools(mcp)
+    OpsTools().register_tools(mcp)
 
     # Fuses: policy middleware added LAST (outermost) so it sees every
     # tools/call before anything else touches it.

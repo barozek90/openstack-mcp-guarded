@@ -15,7 +15,7 @@ dependencies = [
 openstack-mcp-guarded = "openstack_mcp_guarded:main"
 
 [dependency-groups]
-test = [
+dev = [
     "pytest>=8.4",
     "pytest-asyncio>=0.24",
 ]

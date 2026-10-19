@@ -15,6 +15,34 @@ from openstack_mcp_guarded.policy import Policy
 from openstack_mcp_guarded.server import create_mcp
 
 
+@pytest.fixture(autouse=True)
+def fake_clouds(monkeypatch):
+    """Hermetic cloud catalogue.
+
+    Tests must not depend on the real ~/.config/openstack/clouds.yaml
+    (different machines = different cloud names). Patch both import
+    sites: connection.py binds OpenStackConfig at import time, while
+    the middleware resolves it from openstack.config.loader at call
+    time.
+    """
+    import openstack.config.loader as _loader
+    import openstack_mcp_server.tools.connection as _conn
+
+    class FakeOpenStackConfig:
+        cloud_config: dict = {
+            "clouds": {name: {} for name in ("RegionOne", "lab-cloud")},
+        }
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def get_cloud_names(self) -> list[str]:
+            return list(self.cloud_config["clouds"])
+
+    monkeypatch.setattr(_conn, "OpenStackConfig", FakeOpenStackConfig)
+    monkeypatch.setattr(_loader, "OpenStackConfig", FakeOpenStackConfig)
+
+
 @pytest.fixture()
 def read_only_policy():
     return Policy(mode="read-only", source="test")
@@ -94,12 +122,90 @@ async def test_read_only_hides_write_tools(read_only_policy, no_cloud):
         assert blocked not in tools, f"{blocked} should be hidden"
 
 
-    async def test_read_only_visible_count(read_only_policy, no_cloud):
-        """28 read tools (get_*) + 4 session tools = 32 visible in read-only mode."""
-        mcp = create_mcp(policy=read_only_policy)
-        async with Client(mcp) as client:
-            tools = await client.list_tools()
-        assert len(tools) == 32
+async def test_read_only_visible_count(read_only_policy, no_cloud):
+    """28 upstream read + 4 session + 34 extra read = 66 visible."""
+    mcp = create_mcp(policy=read_only_policy)
+    async with Client(mcp) as client:
+        tools = await client.list_tools()
+    assert len(tools) == 66
+
+
+async def test_extra_read_tools_visible(read_only_policy, no_cloud):
+    """New tool families (Octavia, Designate, ops/Heat) must be visible."""
+    mcp = create_mcp(policy=read_only_policy)
+    async with Client(mcp) as client:
+        tools = {t.name for t in await client.list_tools()}
+
+    for expected in (
+        "get_load_balancers",
+        "get_load_balancer_detail",
+        "get_load_balancer_statistics",
+        "get_listeners",
+        "get_pools",
+        "get_pool_members",
+        "get_health_monitors",
+        "get_dns_zones",
+        "get_dns_zone_detail",
+        "get_dns_zone_nameservers",
+        "get_dns_recordsets",
+        "get_dns_recordset_detail",
+        "get_keypairs",
+        "get_server_groups",
+        "get_availability_zones",
+        "get_hypervisors",
+        "get_compute_services",
+        "get_heat_stacks",
+        "get_heat_stack_detail",
+        "get_heat_stack_resources",
+        "get_heat_stack_events",
+        "get_heat_stack_template",
+    ):
+        assert expected in tools, f"{expected} should be visible"
+
+
+async def test_extra_write_tools_hidden(read_only_policy, no_cloud):
+    """New write tools must be hidden by the read-only policy."""
+    mcp = create_mcp(policy=read_only_policy)
+    async with Client(mcp) as client:
+        tools = {t.name for t in await client.list_tools()}
+
+    for blocked in (
+        "create_load_balancer",
+        "delete_load_balancer",
+        "failover_load_balancer",
+        "create_listener",
+        "create_pool",
+        "create_pool_member",
+        "delete_pool_member",
+        "create_health_monitor",
+        "create_dns_zone",
+        "delete_dns_zone",
+        "create_dns_recordset",
+        "update_dns_recordset",
+        "delete_dns_recordset",
+        "create_keypair",
+        "delete_keypair",
+        "create_server_group",
+        "delete_server_group",
+        "create_heat_stack",
+        "update_heat_stack",
+        "delete_heat_stack",
+    ):
+        assert blocked not in tools, f"{blocked} should be hidden"
+
+
+async def test_extra_write_hard_blocked(read_only_policy, cloud_selected):
+    """Direct invocation of a new write tool must raise ToolError."""
+    mcp = create_mcp(policy=read_only_policy)
+    async with Client(mcp) as client:
+        with pytest.raises(ToolError, match="Blocked by openstack-mcp-guarded"):
+            await client.call_tool(
+                "delete_load_balancer", {"load_balancer_id": "fake-uuid"}
+            )
+        with pytest.raises(ToolError, match="Blocked by openstack-mcp-guarded"):
+            await client.call_tool(
+                "delete_dns_zone", {"zone_id": "fake-uuid"}
+            )
 
 
 async def test_hard_block_write_tool(read_only_policy, cloud_selected):
