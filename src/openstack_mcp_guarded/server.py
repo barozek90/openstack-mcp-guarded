@@ -10,6 +10,7 @@ middleware into the pipeline.
 
 from fastmcp import FastMCP
 
+from openstack_mcp_guarded.compat import patch_upstream_quirks
 from openstack_mcp_guarded.middleware import PolicyMiddleware
 from openstack_mcp_guarded.policy import Policy
 
@@ -24,6 +25,10 @@ def create_mcp(policy: Policy | None = None) -> FastMCP:
     """
     if policy is None:
         policy = Policy.load()
+
+    # Order-independent (mutates the shared model class in place; see
+    # compat.py), but applied as early as possible on principle.
+    patch_upstream_quirks()
 
     mcp = FastMCP("openstack_mcp_guarded")
 
